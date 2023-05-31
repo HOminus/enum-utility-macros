@@ -319,8 +319,18 @@ impl<'a> EnumFunctionsBuilder<'a> {
             });
         }
 
+        let mut generics = self.input.generics().clone();
+        generics.params.push(syn::GenericParam::Lifetime(
+            syn::LifetimeParam {
+                attrs: vec![],
+                lifetime: Lifetime::new("'_", Span::call_site()),
+                bounds: Punctuated:: new(),
+                colon_token: None
+            }
+        ));
+
         let ts = quote! {
-            #vs fn #sp (&self) -> #ref_ident<'_> {
+            #vs fn #sp (&self) -> #ref_ident #generics {
                 match self {
                     #(#arms)*
                 }
@@ -431,8 +441,18 @@ impl<'a> EnumFunctionsBuilder<'a> {
             });
         }
 
+        let mut generics = self.input.generics().clone();
+        generics.params.push(syn::GenericParam::Lifetime(
+            syn::LifetimeParam {
+                attrs: vec![],
+                lifetime: Lifetime::new("'_", Span::call_site()),
+                bounds: Punctuated:: new(),
+                colon_token: None
+            }
+        ));
+
         let ts = quote! {
-            #vs fn #sp (&mut self) -> #ref_ident<'_> {
+            #vs fn #sp (&mut self) -> #ref_ident #generics {
                 match self {
                     #(#arms)*
                 }
@@ -543,8 +563,12 @@ impl<'a> EnumFunctionsBuilder<'a> {
         let vs = self.input.vis();
         for i in 0..self.input.variant_count() {
             let nm = self.input.variant_snake_case_name(i);
-            let sp = Ident::new(format!("unwrap_mut_{nm}").as_str(), Span::call_site());
-            let arm = self.input.match_variant_to_tuple(i, None);
+            let sp = Ident::new(format!("get_mut_{nm}").as_str(), Span::call_site());
+            let syn::Arm {
+                pat,
+                body,
+                ..
+            } = self.input.match_variant_to_tuple(i, None);
             
             let return_type = self.input.variant_type(i);
             let mutability = Some(token::Mut {
@@ -579,7 +603,7 @@ impl<'a> EnumFunctionsBuilder<'a> {
             let ts = quote! {
                 #vs fn #sp (&mut self) -> Option<#rt> {
                     match self {
-                        #arm
+                        #pat => { Some ( #body ) },
                         _ => panic!()
                     }
                 }
@@ -600,9 +624,11 @@ impl<'a> EnumFunctionsBuilder<'a> {
         let visibility = &self.input.vis();
         let enum_name = &self.input.0.ident;
         let functions = &self.functions;
+        let (impl_g, type_g, where_clause) = self.input.generics().split_for_impl();
+
         if !functions.is_empty() {
             let functions = quote! {
-                #visibility impl #enum_name {
+                #visibility impl #impl_g #enum_name #type_g #where_clause {
                     #(#functions)*
                 }
             };
@@ -613,6 +639,3 @@ impl<'a> EnumFunctionsBuilder<'a> {
         }
     }
 }
-
-
-

@@ -14,6 +14,7 @@ use syn::{
 pub(crate) struct RefEnumBuilder<'a> {
     input: &'a InputEnum,
     mutable: bool,
+    generics: syn::Generics,
     lifetime: Lifetime,
     visibility: Visibility,
     ref_enum_name: Ident,
@@ -23,7 +24,7 @@ pub(crate) struct RefEnumBuilder<'a> {
 
 impl<'a> RefEnumBuilder<'a> {
     pub(crate) fn new(input: &'a InputEnum, mutable: bool) -> Self {
-        let lifetime = Lifetime::new("'a", Span::call_site());
+        let lifetime = Lifetime::new("'reb", Span::call_site());
         
         let ident = if mutable {
             Ident::new(format!("{}Mut", input.name()).as_str(), Span::call_site())
@@ -35,11 +36,13 @@ impl<'a> RefEnumBuilder<'a> {
             mutable,
             visibility: input.0.vis.clone(),
             ref_enum_name: ident,
+            generics: input.generics().clone(),
             lifetime,
             variants: vec![],
             functions: vec![],
         };
         this.map_variants();
+        this.adjust_generics();
         this
     }
 
@@ -86,6 +89,18 @@ impl<'a> RefEnumBuilder<'a> {
         })
     }
 
+    fn adjust_generics(&mut self) {
+
+        self.generics.params.push(syn::GenericParam::Lifetime(
+            syn::LifetimeParam {
+                attrs: vec![],
+                bounds: Punctuated::new(),
+                colon_token: None,
+                lifetime: self.lifetime.clone()
+            }
+        ));
+    }
+
     pub(crate) fn is_functions(&mut self) {
         let vs = self.input.vis();
         for i in 0..self.input.variant_count() {
@@ -117,9 +132,10 @@ impl<'a> RefEnumBuilder<'a> {
             let arm = self.input.match_variant_to_tuple(i, Some(self.ref_enum_name.clone()));
             
             let return_type = self.variant_type(i);
+            let lifetime = &self.lifetime;
             let ts = if self.mutable {
                 quote! {
-                    #vs fn #sp (&'a mut self) -> #return_type {
+                    #vs fn #sp (& #lifetime mut self) -> #return_type {
                         match self {
                             #arm
                             _ => panic!()
@@ -128,7 +144,7 @@ impl<'a> RefEnumBuilder<'a> {
                 }
             } else {
                 quote! {
-                    #vs fn #sp (&'a self) -> #return_type {
+                    #vs fn #sp (& #lifetime self) -> #return_type {
                         match self {
                             #arm
                             _ => panic!()
@@ -160,9 +176,10 @@ impl<'a> RefEnumBuilder<'a> {
             } = self.input.match_variant_to_tuple(i, Some(self.ref_enum_name.clone()));
             
             let return_type = self.variant_type(i);
+            let lifetime = &self.lifetime;
             let ts = if self.mutable {
                 quote! {
-                    #vs fn #sp (&'a mut self) -> Option<#return_type> {
+                    #vs fn #sp (& #lifetime mut self) -> Option<#return_type> {
                         match self {
                             #pat => { Some( #body ) },
                             _ => None
@@ -171,7 +188,7 @@ impl<'a> RefEnumBuilder<'a> {
                 }
             } else {
                 quote! {
-                    #vs fn #sp (&'a self) -> Option<#return_type> {
+                    #vs fn #sp (& #lifetime self) -> Option<#return_type> {
                         match self {
                             #pat => { Some ( #body ) },
                             _ => None
@@ -236,17 +253,29 @@ impl<'a> RefEnumBuilder<'a> {
         let visibility = &self.visibility;
         let ref_enum_name = &self.ref_enum_name;
         let ref_enum_variants = &self.variants;
+
+
+        let attributes = self.input.attributes();
+        let attributes = if self.mutable {
+            super::filter_derive_attributes(attributes.as_slice(), &["Clone", "Copy"])
+        } else {
+            super::filter_derive_attributes(attributes.as_slice(), &[])
+        };
+        
+        let generics = &self.generics;
         let ref_enum = quote! {
-            #visibility enum #ref_enum_name <'a> {
+            #(#attributes)*
+            #visibility enum #ref_enum_name #generics {
                 #(#ref_enum_variants ,)*
             }
         };
         let mut ref_enum_stream = TokenStream::from(ref_enum);
-
+        
         if !self.functions.is_empty() {
+            let (impl_g, type_g, where_g) = self.generics.split_for_impl();
             let functions = &self.functions;
             let ref_functions = quote! {
-                #visibility impl<'a> #ref_enum_name <'a> {
+                #visibility impl #impl_g #ref_enum_name #type_g #where_g {
                     #(#functions)*
                 }
             };

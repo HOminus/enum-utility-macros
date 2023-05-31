@@ -68,7 +68,7 @@
 use functions_builder::EnumFunctionsBuilder;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, extra::DelimSpan, Punct};
-use quote::quote;
+use quote::{quote, ToTokens};
 use ref_enum_builder::RefEnumBuilder;
 use syn::{
     parse::Parser,
@@ -147,14 +147,20 @@ pub fn generate_enum_helper(attr: TokenStream, item: TokenStream) -> TokenStream
             if create_to_tag_functions {
                 functions_builder.to_tag_function();
             }
-            if create_get_functions {
-                functions_builder.get_functions();
-            }
             if create_as_ref_functions {
                 functions_builder.as_ref_functions();
             }
             if create_as_mut_functions {
                 functions_builder.as_mut_functions();
+            }
+            if create_get_functions {
+                functions_builder.get_functions();
+            }
+            if create_get_ref_functions {
+                functions_builder.get_ref_functions();
+            }
+            if create_get_mut_functions {
+                functions_builder.get_mut_functions();
             }
 
             let ts = functions_builder.token_stream();
@@ -235,6 +241,14 @@ impl InputEnum {
         snake_case_name
     }
 
+    fn generics(&self) -> &syn::Generics {
+        &self.0.generics
+    }
+
+    fn attributes(&self) -> &Vec<syn::Attribute> {
+        &self.0.attrs
+    }
+
     fn iter_variants(&self) -> impl Iterator<Item=&Variant> {
         self.0.variants.iter()
     }
@@ -282,9 +296,14 @@ impl InputEnum {
                     #enum_name :: #variant_name { .. }
                 }
             }
-            Fields::Unnamed(_) => {
+            Fields::Unnamed(fields) => {
+                let wild_pattern = vec![syn::Pat::Wild(syn::PatWild {
+                    attrs: vec![],
+                    underscore_token: token::Underscore { spans: [Span::call_site(); 1] },
+                }); fields.unnamed.len()];
+
                 quote! {
-                    #enum_name :: #variant_name (_)
+                    #enum_name :: #variant_name ( #(#wild_pattern ,)* )
                 }
             }
         };
@@ -464,8 +483,6 @@ impl InputEnum {
 
 }
 
-
-
 pub(crate) fn parse_function(ts: proc_macro2::TokenStream, ifn: &mut Option<ItemFn>) -> TokenStream {
     let r = TokenStream::from(ts);
     let r2 = r.clone();
@@ -473,4 +490,38 @@ pub(crate) fn parse_function(ts: proc_macro2::TokenStream, ifn: &mut Option<Item
     *ifn = Some(pifn);
     r
 }
+
+fn filter_derive_attributes(attrs: &[syn::Attribute], filtered_out: &[&str]) -> Vec<syn::Attribute> {
+    let mut result = vec![];
+    for attr in attrs {
+        match &attr.meta {
+            syn::Meta::List(ml) if ml.path.to_token_stream().to_string() == "derive" => {
+                let punctuated_parser = Punctuated::<syn::Path, Token![,]>::parse_terminated;
+                let punctuated = punctuated_parser.parse2(ml.tokens.clone()).unwrap();
+
+                let mut punctuated_result = Punctuated::<_, Token![,]>::new();
+                for item in punctuated.into_iter() {
+                    let last_segment = item.segments.last().unwrap().ident.to_string();
+                    if filtered_out.contains(&last_segment.as_str()) {
+                        continue;
+                    }
+                    punctuated_result.push(item);
+                }
+                result.push(syn::Attribute {
+                    pound_token: attr.pound_token.clone(),
+                    style: attr.style.clone(),
+                    bracket_token: attr.bracket_token.clone(),
+                    meta: syn::Meta::List(syn::MetaList {
+                        path: ml.path.clone(),
+                        delimiter: ml.delimiter.clone(),
+                        tokens: punctuated_result.to_token_stream()
+                    })
+                });
+            }
+            _ => result.push(attr.clone())
+        }
+    }
+    result
+}
+
 

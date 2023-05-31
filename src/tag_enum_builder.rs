@@ -51,11 +51,13 @@ impl<'a> TagEnumBuilder<'a> {
         for i in 0..self.input.variant_count() {
             let nm = self.input.variant_snake_case_name(i);
             let sp = Ident::new(format!("is_{nm}").as_str(), Span::call_site());
-            let vident = &self.input.variant(i).ident;
+
             let eident = &self.tag_enum_name;
+            let vident = &self.variants[i].ident;
+
             let ts = quote! {
                 #vs fn #sp (&self) -> bool {
-                    matches!(self, #eident::#vident)
+                    matches!(self, #eident :: #vident)
                 }
             };
 
@@ -75,6 +77,7 @@ impl<'a> TagEnumBuilder<'a> {
         let tag_enum_name = &self.tag_enum_name;
         let tag_enum_variants = &self.variants;
         let tag_enum = quote! {
+            #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
             #visibility enum #tag_enum_name {
                 #(#tag_enum_variants ,)*
             }
