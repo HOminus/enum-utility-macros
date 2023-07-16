@@ -4,6 +4,11 @@ version = "0.1.0"
 authors = ["Oliver Heilmann"]
 edition = "2021"
 license = "MPL-2.0"
+description = "A macro to generate useful helpers for enums"
+documentation = "https://docs.rs/enum-utility-macros"
+homepage = "https://www.github.com/HOminus/enum-utility-macros"
+repository = "https://www.github.com/HOminus/enum-utility-macros"
+readme = "README.md"
 
 [lib]
 proc-macro = true
